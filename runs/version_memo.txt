@@ -1,0 +1,43 @@
+output_dir="./runs/v3_segmatch_aug50_k48":
+    - dataset: 
+        outline_dir="/home/jmseo1216/deepfont/v3_all_dataset_aug50/aug_ttf"
+        skeleton_dir="/home/jmseo1216/deepfont/v3_all_dataset_aug50/aug_fnt"
+    - loss param:
+        w_match_segment=5.0
+        w_exist_bce=5.0    
+        w_exist_count=1.0   
+        w_total_length=0.5
+        w_render=5.0        
+        w_pred_to_target=0.5
+        w_target_to_pred=0.5  
+        render_fg_weight=10.0
+
+
+output_dir="./runs/v4_segmatch_aug50_k48":
+    - dataset: 
+        outline_dir="/home/jmseo1216/deepfont/v3_all_dataset_aug50/aug_ttf"
+        skeleton_dir="/home/jmseo1216/deepfont/v3_all_dataset_aug50/aug_fnt"
+    - loss param:
+        w_match_segment=5.0
+        w_exist_bce=5.0    
+        w_exist_count=1.0   
+        w_total_length=0.5
+        w_render=5.0        
+        w_pred_to_target=0.0  
+        w_target_to_pred=0.0  
+        render_fg_weight=10.0
+
+
+output_dir="./runs/v5_segmatch_aug50_k48"
+    - dataset: 
+        outline_dir="/home/jmseo1216/deepfont/v3_all_dataset_aug50/aug_ttf"
+        skeleton_dir="/home/jmseo1216/deepfont/v3_all_dataset_aug50/aug_fnt"
+    - loss param:
+        w_match_segment=5.0
+        w_exist_bce=5.0    
+        w_exist_count=0.5
+        w_total_length=0.5
+        w_render=0.0        
+        w_pred_to_target=0.0  
+        w_target_to_pred=0.0  
+        render_fg_weight=0.0

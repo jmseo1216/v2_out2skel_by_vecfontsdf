@@ -96,23 +96,207 @@ def make_visualization(sample: dict, logits: torch.Tensor, segments: torch.Tenso
     plt.close(fig)
 
 
-def print_debug_info(sample: dict, logits: torch.Tensor, segments: torch.Tensor, losses: dict, threshold: float) -> None:
-    """시각화 대상 샘플의 핵심 수치를 출력한다."""
+def format_segment(seg: torch.Tensor) -> str:
+    """segment tensor [4]를 보기 좋은 문자열로 변환한다."""
+    s = seg.detach().cpu().tolist()
+    return f"[{s[0]:.2f}, {s[1]:.2f}, {s[2]:.2f}, {s[3]:.2f}]"
+
+
+### exist 정보 출력 함수 
+def print_segment_table(
+    title: str,
+    indices: torch.Tensor,
+    exist_prob: torch.Tensor,
+    pred_segments: torch.Tensor,
+    lengths: torch.Tensor,
+    matched_pred_set: set[int] | None = None,
+    active_set: set[int] | None = None,
+) -> None:
+    """pred segment 목록을 index, exist, length, 좌표와 함께 출력한다."""
+    matched_pred_set = matched_pred_set or set()
+    active_set = active_set or set()
+
+    print()
+    print("=" * 100)
+    print(title)
+    print("=" * 100)
+    print(f"{'idx':>4} | {'exist':>8} | {'length':>8} | {'active':>6} | {'matched':>7} | segment [x0,y0,x1,y1]")
+    print("-" * 100)
+
+    for idx_tensor in indices:
+        idx = int(idx_tensor)
+        active_mark = "Y" if idx in active_set else "-"
+        matched_mark = "Y" if idx in matched_pred_set else "-"
+
+        print(
+            f"{idx:4d} | "
+            f"{float(exist_prob[idx]):8.4f} | "
+            f"{float(lengths[idx]):8.2f} | "
+            f"{active_mark:>6} | "
+            f"{matched_mark:>7} | "
+            f"{format_segment(pred_segments[idx])}"
+        )
+
+
+def print_debug_info(
+    sample: dict,
+    logits: torch.Tensor,
+    segments: torch.Tensor,
+    losses: dict,
+    threshold: float,
+    image_size: int,
+) -> None:
+    """시각화 대상 샘플의 핵심 수치와 segment 상세 정보를 출력한다."""
+    device = segments.device
+
     exist_prob = torch.sigmoid(logits[0]).detach().cpu()
     pred_segments = segments[0].detach().cpu()
     active = exist_prob > threshold
+    active_idx = torch.where(active)[0]
+
     lengths = segment_lengths_torch(pred_segments).detach().cpu()
     pred_total_length = float((exist_prob * lengths).sum())
+
+    target_mask = sample["target_segment_mask"].bool()
+    target_segments = sample["target_segments"][target_mask].detach().cpu()
+
+    print()
+    print("#" * 100)
+    print("기본 정보")
+    print("#" * 100)
     print(f"filename: {sample['filename']}")
     print(f"codepoint: {int(sample['codepoint'])}")
     print(f"target_num_segments: {float(sample['target_num_segments']):.0f}")
     print(f"pred_active_segments threshold={threshold}: {int(active.sum())}")
-    print(f"exist_prob min/max/mean: {float(exist_prob.min()):.4f} / {float(exist_prob.max()):.4f} / {float(exist_prob.mean()):.4f}")
-    print(f"pred segment length min/max/mean: {float(lengths.min()):.4f} / {float(lengths.max()):.4f} / {float(lengths.mean()):.4f}")
+    print(
+        "exist_prob min/max/mean: "
+        f"{float(exist_prob.min()):.4f} / "
+        f"{float(exist_prob.max()):.4f} / "
+        f"{float(exist_prob.mean()):.4f}"
+    )
+    print(
+        "pred segment length min/max/mean: "
+        f"{float(lengths.min()):.4f} / "
+        f"{float(lengths.max()):.4f} / "
+        f"{float(lengths.mean()):.4f}"
+    )
     print(f"target_total_length: {float(sample['target_total_length']):.4f}")
     print(f"pred_total_length: {pred_total_length:.4f}")
+
+    print()
+    print("#" * 100)
+    print("Loss values")
+    print("#" * 100)
     for name, value in losses.items():
         print(f"{name}: {float(value.detach().cpu()):.6f}")
+
+    # Hungarian matching 결과 계산
+    batch = {
+        k: v.unsqueeze(0).to(device)
+        if torch.is_tensor(v) and k != "codepoint"
+        else v
+        for k, v in sample.items()
+    }
+
+    matched_pred_idx = torch.empty(0, dtype=torch.long)
+    matched_target_idx = torch.empty(0, dtype=torch.long)
+
+    try:
+        matches = hungarian_match_indices(
+            segments,
+            batch["target_segments"],
+            batch["target_segment_mask"],
+            LossConfig(image_size=image_size),
+        )[0]
+
+        matched_pred_idx = matches[0].detach().cpu()
+        matched_target_idx = matches[1].detach().cpu()
+
+    except Exception as exc:
+        print()
+        print("[WARN] Hungarian matching 출력 실패:", exc)
+
+    matched_pred_set = set(int(i) for i in matched_pred_idx.tolist())
+    active_set = set(int(i) for i in active_idx.tolist())
+
+    # 1. exist_prob 높은 순서대로 전체 pred segment 출력
+    sorted_idx = torch.argsort(exist_prob, descending=True)
+
+    print_segment_table(
+        title="Pred segments sorted by exist_prob descending",
+        indices=sorted_idx,
+        exist_prob=exist_prob,
+        pred_segments=pred_segments,
+        lengths=lengths,
+        matched_pred_set=matched_pred_set,
+        active_set=active_set,
+    )
+
+    # 2. active segment만 따로 출력
+    if len(active_idx) > 0:
+        active_sorted_idx = active_idx[torch.argsort(exist_prob[active_idx], descending=True)]
+
+        print_segment_table(
+            title=f"Active pred segments only, threshold={threshold}",
+            indices=active_sorted_idx,
+            exist_prob=exist_prob,
+            pred_segments=pred_segments,
+            lengths=lengths,
+            matched_pred_set=matched_pred_set,
+            active_set=active_set,
+        )
+    else:
+        print()
+        print("=" * 100)
+        print(f"Active pred segments only, threshold={threshold}")
+        print("=" * 100)
+        print("active segment가 없습니다.")
+
+    # 3. Hungarian matched pair 상세 출력
+    print()
+    print("=" * 100)
+    print("Hungarian matched pairs")
+    print("=" * 100)
+
+    if len(matched_pred_idx) == 0:
+        print("matched pair가 없습니다.")
+    else:
+        print(
+            f"{'pair':>4} | {'target_idx':>10} | {'pred_idx':>8} | "
+            f"{'pred_exist':>10} | {'pred_len':>8} | pred segment | target segment"
+        )
+        print("-" * 100)
+
+        for pair_i, (p_idx_tensor, t_idx_tensor) in enumerate(zip(matched_pred_idx, matched_target_idx)):
+            p_idx = int(p_idx_tensor)
+            t_idx = int(t_idx_tensor)
+
+            pred_seg = pred_segments[p_idx]
+            target_seg = target_segments[t_idx]
+
+            print(
+                f"{pair_i:4d} | "
+                f"{t_idx:10d} | "
+                f"{p_idx:8d} | "
+                f"{float(exist_prob[p_idx]):10.4f} | "
+                f"{float(lengths[p_idx]):8.2f} | "
+                f"{format_segment(pred_seg)} | "
+                f"{format_segment(target_seg)}"
+            )
+
+    # 4. target segment 자체도 출력
+    print()
+    print("=" * 100)
+    print("Target segments")
+    print("=" * 100)
+
+    for i, seg in enumerate(target_segments):
+        target_len = torch.sqrt(((seg[2:] - seg[:2]) ** 2).sum() + 1e-8)
+        print(
+            f"target {i:3d} | "
+            f"length={float(target_len):8.2f} | "
+            f"{format_segment(seg)}"
+        )
 
 
 def run_visualization(args: argparse.Namespace) -> None:
@@ -122,9 +306,10 @@ def run_visualization(args: argparse.Namespace) -> None:
     model = load_model(args, device)
     batch = {k: v.unsqueeze(0).to(device) if torch.is_tensor(v) and k != "codepoint" else v for k, v in sample.items()}
     with torch.no_grad():
-        logits, segments = model(batch["input_image"])
+        # logits, segments = model(batch["input_image"])
+        logits, segments = model(batch["input_image"], codepoint=batch["codepoint"],)
         losses = compute_losses(logits, segments, batch, LossConfig(image_size=args.image_size, render_sigma=args.sigma))
-    print_debug_info(sample, logits, segments, losses, args.exist_threshold)
+    print_debug_info(sample, logits, segments, losses, args.exist_threshold, args.image_size)
     save_dir = Path(args.save_dir)
     save_path = save_dir / f"{Path(sample['filename']).stem}_segmatch_debug.png"
     make_visualization(sample, logits, segments, losses, args, save_path)

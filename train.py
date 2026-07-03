@@ -92,8 +92,17 @@ def run_epoch(model: FontSkeletonModel, loader: DataLoader, cfg: LossConfig, dev
         batch = move_batch(batch, device)
         if training:
             optimizer.zero_grad(set_to_none=True)
+        # with torch.set_grad_enabled(training):
+        #     logits, segments = model(batch["input_image"])
+        #     losses = compute_losses(logits, segments, batch, cfg)
+        #     if training:
+        #         losses["total"].backward()
+        #         optimizer.step()
         with torch.set_grad_enabled(training):
-            logits, segments = model(batch["input_image"])
+            logits, segments = model(
+                batch["input_image"],
+                codepoint=batch["codepoint"],
+            )
             losses = compute_losses(logits, segments, batch, cfg)
             if training:
                 losses["total"].backward()
@@ -147,7 +156,14 @@ def main() -> None:
     }
 
     device = torch.device(args.device)
-    model = FontSkeletonModel(args.k_segments, args.image_size).to(device)
+    model = model = FontSkeletonModel(
+        num_segments=args.k_segments,
+        image_size=args.image_size,
+        fc_channel=1024,
+        char_categories=94,
+        codepoint_min=33,
+        use_class_condition=True,
+    ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     cfg = make_loss_config(args)
 

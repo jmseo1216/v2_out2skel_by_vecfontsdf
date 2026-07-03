@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 # 학습된 checkpoint를 사용해 origin dataset의 특정 glyph를 시각화한다.
 set -euo pipefail
-
-outline_dir="/home/jmseo1216/deepfont/origin_dataset/arial_pro_ttf_svg"
-skeleton_dir="/home/jmseo1216/deepfont/origin_dataset/arial_pro_fnt_svg"
-output_dir="./runs/segmatch_aug300_k48"
-checkpoint="$output_dir/checkpoints/best_val_model.pt"
+export CUDA_VISIBLE_DEVICES=0
+# outline_dir="/home/jmseo1216/deepfont/origin_dataset/arial_pro_ttf_svg"
+# skeleton_dir="/home/jmseo1216/deepfont/origin_dataset/arial_pro_fnt_svg"
+outline_dir="/home/jmseo1216/deepfont/test_dataset_folder/titillium_web_prettf_svg"
+skeleton_dir="/home/jmseo1216/deepfont/origin_dataset/simplex_pro_fnt_svg"
+output_dir="./runs/v5_segmatch_aug50_k48"
+checkpoint="$output_dir/checkpoints/epoch_0100.pt"
 save_dir="$output_dir/visualizations"
+
+# /home/jmseo1216/deepfont/v2_out2skel_by_vecfontsdf/runs/v2_segmatch_aug50_k48/checkpoints/epoch_0040.pt
+# outline_dir="/home/jmseo1216/deepfont/test_dataset_folder/titillium_web_prettf_svg"
+
 
 image_size=128
 svg_size=50
-codepoint=65
+codepoint=35
 k_segments=48
 sigma=2.0
 num_target_points=1000
-exist_threshold=0.5
+exist_threshold=0.3
 
 mkdir -p "$save_dir"
 
